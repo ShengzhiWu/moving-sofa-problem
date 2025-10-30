@@ -59,7 +59,8 @@ def generate_sofa_image(
     test_row_2 = None,
     resolution = 500,
     trajectory_upsampling = 50,
-    text_size = 35
+    text_size = 35,
+    text_color = (255, 255, 255)
 ):
     xs, ys, rotations = np.load(path + f'{id}.npy')
     sofa = get_sofa(is_forbidden, xs, ys, rotations, resolution=resolution, trajectory_upsampling=trajectory_upsampling)
@@ -80,12 +81,12 @@ def generate_sofa_image(
         text_row_2 = f'面积：{np.sum(sofa) / sofa.shape[1] ** 2:.4f}'
         if text_row_2 is None:
             font = ImageFont.truetype("simhei.ttf", text_size)
-            draw.text((center[0] - draw.textlength(text_row_1, font=font) / 2,  center[1] - text_size / 2), text_row_1, fill=(255, 255, 255), font=font)
+            draw.text((center[0] - draw.textlength(text_row_1, font=font) / 2,  center[1] - text_size / 2), text_row_1, fill=text_color, font=font)
         else:  # 有两行文本要绘制
             font = ImageFont.truetype("simhei.ttf", text_size)
-            draw.text((center[0] - draw.textlength(text_row_1, font=font) / 2,  center[1] + text_size * -0.8), text_row_1, fill=(255, 255, 255), font=font)
+            draw.text((center[0] - draw.textlength(text_row_1, font=font) / 2,  center[1] + text_size * -0.8), text_row_1, fill=text_color, font=font)
             font = ImageFont.truetype("simhei.ttf", text_size * 0.5)
-            draw.text((center[0] - draw.textlength(text_row_2, font=font) / 2,  center[1] + text_size * 0.3), text_row_2, fill=(255, 255, 255), font=font)
+            draw.text((center[0] - draw.textlength(text_row_2, font=font) / 2,  center[1] + text_size * 0.3), text_row_2, fill=text_color, font=font)
 
     return image
 
@@ -101,6 +102,7 @@ def generate_animated_sofa(
     draw_text = True,
     id_factor = 83,  # 显示的编号是输入的编号的多少倍
     text_size_factor = 0.06,
+    text_color=(255, 255, 255),
     trajectory_updampling = 1  # 在对轨迹进行单调化处理前先重新采样
 ):
     image = generate_sofa_image(
@@ -110,7 +112,8 @@ def generate_animated_sofa(
         text_row_1=f'#{id * id_factor}',
         resolution=resolution,
         trajectory_upsampling=101,
-        text_size=resolution * text_size_factor
+        text_size=resolution * text_size_factor,
+        text_color=text_color
     )
     
     xs, ys, rotations = np.load(path + f'{id}.npy')
