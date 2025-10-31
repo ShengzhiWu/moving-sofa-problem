@@ -4,6 +4,11 @@ from PIL import Image
 import taichi as ti
 from scipy.ndimage import zoom
 import os
+import inspect
+
+def get_parameter_count(f):  # 获取函数参数数量
+    sig = inspect.signature(f)
+    return len(sig.parameters)
 
 def resample_polyline(polyline, n):  # 在一条折线上等弧长间距地分布若干个点
     segments = np.diff(polyline, axis=0)
@@ -38,7 +43,7 @@ def transform_local_to_world(
     return world_x, world_y
 
 @ti.kernel
-def compute_survive(sofa_w: float, sofa_h: float, x_field: ti.template(), y_field: ti.template(), rotation_field: ti.template(), survive_mask: ti.template()):  # type: ignore
+def compute_survive(sofa_w: float, sofa_h: float, x_field: ti.template(), y_field: ti.template(), rotation_field: ti.template(), survive_mask: ti.template()):  # 根据轨迹计算能通过的图形 # type: ignore
     for i, j in survive_mask:
         survive_mask[i, j] = -1  # -1表示幸存
 
@@ -48,10 +53,26 @@ def compute_survive(sofa_w: float, sofa_h: float, x_field: ti.template(), y_fiel
         for t in range(x_field.shape[0]):
             world_x, world_y = transform_local_to_world(local_x, local_y, x_field[t], y_field[t], rotation_field[t])
             # check forbidden region
-            # third quadrant
             if is_forbidden(world_x, world_y):
                 survive_mask[i, j] = t  # 非负整数表示未幸存，值为这个像素被削掉的时刻
                 break
+
+@ti.kernel
+def compute_survive_2(sofa_w: float, sofa_h: float, x_field: ti.template(), y_field: ti.template(), rotation_field: ti.template(), survive_mask: ti.template()):  # 根据轨迹计算能通过的图形，其中进入墙壁的判定函数需要输入相邻时间步的两个点 # type: ignore
+    for i, j in survive_mask:
+        survive_mask[i, j] = -1  # -1表示幸存
+
+        # local coords
+        local_x = (i + 0.5) / survive_mask.shape[0] * sofa_w - sofa_w * 0.5
+        local_y = (j + 0.5) / survive_mask.shape[1] * sofa_h - sofa_h * 0.5
+        world_x, world_y = transform_local_to_world(local_x, local_y, x_field[0], y_field[0], rotation_field[0])
+        for t in range(1, x_field.shape[0]):
+            world_x_new, world_y_new = transform_local_to_world(local_x, local_y, x_field[t], y_field[t], rotation_field[t])
+            # check forbidden region
+            if is_forbidden(world_x, world_y, world_x_new, world_y_new):
+                survive_mask[i, j] = t  # 非负整数表示未幸存，值为这个像素被削掉的时刻
+                break
+            world_x, world_y = world_x_new, world_y_new
 
 def generate_fields(
     sofa_w = 3.5,   # 求解域的尺寸
@@ -75,7 +96,7 @@ def generate_fields(
     return x_field, y_field, rotation_field, survive_mask
 
 def get_sofa(  # 根据轨迹计算沙发形状，返回一张位图
-    forbidden_function,
+    forbidden_function,  # 一个函数，参数数量可以是2或4，分别对应(x, y)或(x0, y0, x1, y1)
     xs,
     ys,
     rotations,
@@ -88,6 +109,7 @@ def get_sofa(  # 根据轨迹计算沙发形状，返回一张位图
 ):
     global is_forbidden
     is_forbidden = forbidden_function
+    assert get_parameter_count(is_forbidden) in [2, 4]
     
     # Taichi fields
     x_field, y_field, rotation_field, survive_mask = generate_fields(sofa_w, sofa_h, resolution, len(xs), trajectory_upsampling)
@@ -96,7 +118,10 @@ def get_sofa(  # 根据轨迹计算沙发形状，返回一张位图
     y_field.from_numpy(zoom(ys, zoom=trajectory_upsampling, order=trajectory_upsampling_order))
     rotation_field.from_numpy(zoom(rotations, zoom=trajectory_upsampling, order=trajectory_upsampling_order))
 
-    compute_survive(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask)
+    if get_parameter_count(is_forbidden) == 2:
+        compute_survive(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask)
+    else:
+        compute_survive_2(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask)
 
     survive_mask_numpy = survive_mask.to_numpy()
 
@@ -113,7 +138,7 @@ def get_area_kernel(sofa_w: float, sofa_h: float, survive_mask: ti.template()) -
     return float(s) / survive_mask.shape[0] / survive_mask.shape[1] * sofa_w * sofa_h
 
 def get_area(
-    forbidden_function,
+    forbidden_function,  # 一个函数，参数数量可以是2或4，分别对应(x, y)或(x0, y0, x1, y1)
     xs,
     ys,
     rotations,
@@ -125,6 +150,7 @@ def get_area(
 ):
     global is_forbidden
     is_forbidden = forbidden_function
+    assert get_parameter_count(is_forbidden) in [2, 4]
     
     # Taichi fields
     x_field, y_field, rotation_field, survive_mask = generate_fields(sofa_w, sofa_h, resolution, len(xs), trajectory_upsampling)
@@ -133,7 +159,10 @@ def get_area(
     y_field.from_numpy(zoom(ys, zoom=trajectory_upsampling, order=trajectory_upsampling_order))
     rotation_field.from_numpy(zoom(rotations, zoom=trajectory_upsampling, order=trajectory_upsampling_order))
 
-    compute_survive(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask)
+    if get_parameter_count(is_forbidden) == 2:
+        compute_survive(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask)
+    else:
+        compute_survive_2(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask)
 
     return get_area_kernel(sofa_w, sofa_h, survive_mask)
 
@@ -164,7 +193,7 @@ def mutate(xs, ys, rs, mutation_sigma_pos, mutation_sigma_rotation):
     return new_xs, new_ys, new_rs
 
 def run_optimization(
-    forbidden_function,
+    forbidden_function,  # 一个函数，参数数量可以是2或4，分别对应(x, y)或(x0, y0, x1, y1)
     initial_xs,
     initial_ys,
     initial_rotations,
@@ -185,6 +214,7 @@ def run_optimization(
     best_xs, best_ys, best_rotations = initial_xs, initial_ys, initial_rotations
     global is_forbidden
     is_forbidden = forbidden_function
+    assert get_parameter_count(is_forbidden) in [2, 4]
 
     if not save_image_every is None:
         save_image_path_pure = save_image_path[:save_image_path.rfind('/') + 1]
@@ -204,7 +234,10 @@ def run_optimization(
     x_field.from_numpy(zoom(best_xs, zoom=trajectory_upsampling, order=trajectory_upsampling_order))
     y_field.from_numpy(zoom(best_ys, zoom=trajectory_upsampling, order=trajectory_upsampling_order))
     rotation_field.from_numpy(zoom(best_rotations, zoom=trajectory_upsampling, order=trajectory_upsampling_order))
-    compute_survive(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask)
+    if get_parameter_count(is_forbidden) == 2:
+        compute_survive(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask)
+    else:
+        compute_survive_2(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask)
     maximal_area = get_area_kernel(sofa_w, sofa_h, survive_mask)
     print(f"Initial survivors: {maximal_area}")
     if not save_image_every is None:
@@ -223,7 +256,10 @@ def run_optimization(
         x_field.from_numpy(zoom(new_xs, zoom=trajectory_upsampling, order=trajectory_upsampling_order))
         y_field.from_numpy(zoom(new_ys, zoom=trajectory_upsampling, order=trajectory_upsampling_order))
         rotation_field.from_numpy(zoom(new_rs, zoom=trajectory_upsampling, order=trajectory_upsampling_order))
-        compute_survive(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask)
+        if get_parameter_count(is_forbidden) == 2:
+            compute_survive(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask)
+        else:
+            compute_survive_2(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask)
         new_area = get_area_kernel(sofa_w, sofa_h, survive_mask)
         if new_area >= maximal_area:
             maximal_area = new_area
@@ -240,7 +276,10 @@ def run_optimization(
             x_field.from_numpy(zoom(best_xs, zoom=trajectory_upsampling, order=trajectory_upsampling_order))
             y_field.from_numpy(zoom(best_ys, zoom=trajectory_upsampling, order=trajectory_upsampling_order))
             rotation_field.from_numpy(zoom(best_rotations, zoom=trajectory_upsampling, order=trajectory_upsampling_order))
-            compute_survive(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask)
+            if get_parameter_count(is_forbidden) == 2:
+                compute_survive(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask)
+            else:
+                compute_survive_2(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask)
             sofa = survive_mask.to_numpy() < 0
             image = (sofa * 255).astype(np.uint8)
             image = Image.fromarray(image.T[::-1])
@@ -255,7 +294,10 @@ def run_optimization(
     x_field.from_numpy(zoom(best_xs, zoom=trajectory_upsampling, order=trajectory_upsampling_order))
     y_field.from_numpy(zoom(best_ys, zoom=trajectory_upsampling, order=trajectory_upsampling_order))
     rotation_field.from_numpy(zoom(best_rotations, zoom=trajectory_upsampling, order=trajectory_upsampling_order))
-    compute_survive(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask)
+    if get_parameter_count(is_forbidden) == 2:
+        compute_survive(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask)
+    else:
+        compute_survive_2(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask)
     final_sofa = survive_mask.to_numpy() < 0
 
     return maximal_area, best_xs, best_ys, best_rotations, final_sofa, maximal_area_record
@@ -270,12 +312,17 @@ def test_forbidden_function_kernel(image: ti.template(), x_min: float, x_max: fl
         else:
             image[i, j] = 0.0
 
-def test_forbidden_function(forbidden_function, x_min, x_max, y_min, y_max, resolution):  # 测试障碍函数，返回一个位图
+def test_forbidden_function(  # 测试障碍函数，返回一个位图
+        forbidden_function,  # 一个函数，参数数量可以是2或4，分别对应(x, y)或(x0, y0, x1, y1)
+        x_min, x_max, y_min, y_max,
+        resolution
+    ):
     if isinstance(resolution, int):
         resolution = (resolution, resolution)
 
     global is_forbidden
     is_forbidden = forbidden_function
+    assert get_parameter_count(is_forbidden) == 2
 
     image = ti.field(ti.f32, shape=resolution)
     test_forbidden_function_kernel(image, x_min, x_max, y_min, y_max)
