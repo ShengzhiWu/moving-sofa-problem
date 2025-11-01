@@ -283,7 +283,7 @@ def run_optimization(
             sofa = survive_mask.to_numpy() < 0
             image = (sofa * 255).astype(np.uint8)
             image = Image.fromarray(image.T[::-1])
-            id = (iteration + 1) // save_image_every - 1 + save_image_start_id
+            id = (iteration + 1) // save_image_every + save_image_start_id
             image.save(save_image_path + f'{id}.png')
             np.save(save_trajectory_path + f'{id}.npy', np.array([best_xs, best_ys, best_rotations]))
 
