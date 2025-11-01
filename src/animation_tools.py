@@ -54,16 +54,19 @@ def generate_sofa_image(
     is_forbidden,
     path,
     id = 0,
+    sofa_w = 3.5,
+    sofa_h = 1,
     draw_text = True,
     text_row_1 = '',
     test_row_2 = None,
     resolution = 500,
     trajectory_upsampling = 50,
     text_size = 35,
-    text_color = (255, 255, 255)
+    text_color = (255, 255, 255),
+    area_factor = 1
 ):
     xs, ys, rotations = np.load(path + f'{id}.npy')
-    sofa = get_sofa(is_forbidden, xs, ys, rotations, resolution=resolution, trajectory_upsampling=trajectory_upsampling)
+    sofa = get_sofa(is_forbidden, xs, ys, rotations, sofa_w=sofa_w, sofa_h=sofa_h, resolution=resolution, trajectory_upsampling=trajectory_upsampling)
     center = [
         np.sum(sofa * np.arange(sofa.shape[0])[:, np.newaxis]) / np.sum(sofa),
         np.sum(sofa * np.arange(sofa.shape[1])[np.newaxis, :]) / np.sum(sofa)
@@ -78,7 +81,7 @@ def generate_sofa_image(
 
     if draw_text:
         draw = ImageDraw.Draw(image)
-        text_row_2 = f'面积：{np.sum(sofa) / sofa.shape[1] ** 2:.4f}'
+        text_row_2 = f'面积：{np.sum(sofa) * (sofa_h / sofa.shape[1]) ** 2 * area_factor:.4f}'
         if text_row_2 is None:
             font = ImageFont.truetype("simhei.ttf", text_size)
             draw.text((center[0] - draw.textlength(text_row_1, font=font) / 2,  center[1] - text_size / 2), text_row_1, fill=text_color, font=font)
@@ -97,26 +100,35 @@ def generate_animated_sofa(
     start_time,
     duration,
     resolution,
+    sofa_w = 3.5,
+    sofa_h = 1,
     rotation_speed_parameter = 0.4,  # 控制旋转与平移速度比例的参数，值越小，旋转相对于平移越快，但注意取0时旋转速度仍然 > 0
     key_function = None,
     draw_text = True,
     id_factor = 83,  # 显示的编号是输入的编号的多少倍
     text_size_factor = 0.06,
     text_color=(255, 255, 255),
-    trajectory_updampling = 1  # 在对轨迹进行单调化处理前先重新采样
+    trajectory_updampling = 1,  # 在对轨迹进行单调化处理前先重新采样
+    data_post_process = None,  # 读取文件后的后处理
+    area_factor = 1
 ):
     image = generate_sofa_image(
         is_forbidden, path,
         id=id,
+        sofa_w=sofa_w,
+        sofa_h=sofa_h,
         draw_text=draw_text,
         text_row_1=f'#{id * id_factor}',
         resolution=resolution,
         trajectory_upsampling=101,
         text_size=resolution * text_size_factor,
-        text_color=text_color
+        text_color=text_color,
+        area_factor=area_factor
     )
     
     xs, ys, rotations = np.load(path + f'{id}.npy')
+    if callable(data_post_process):
+        xs, ys, rotations = data_post_process(xs, ys, rotations)
     if trajectory_updampling != 1:
         xs = np.interp(np.linspace(0, len(xs) - 1, num=(len(xs) - 1) * trajectory_updampling + 1), np.arange(len(xs)), xs)
         ys = np.interp(np.linspace(0, len(ys) - 1, num=(len(ys) - 1) * trajectory_updampling + 1), np.arange(len(ys)), ys)
@@ -142,7 +154,9 @@ def draw_sofa(
     sofa_image,
     xs,
     ys,
-    rotations, process  # 运动进度，可以超过数组范围，超过的部分会自动线性延拓（注意延拓方向要么水平要么竖直，不支持斜向运动）
+    rotations,
+    process,  # 运动进度，可以超过数组范围，超过的部分会自动线性延拓（注意延拓方向要么水平要么竖直，不支持斜向运动）
+    sofa_h = 1
 ):
     if process < 0:  # 延拓
         if abs(xs[1] - xs[0]) > abs(ys[1] - ys[0]):  # 横向移动
@@ -167,7 +181,7 @@ def draw_sofa(
 
     sofa_image_transformed = sofa_image.rotate(rotation / np.pi * 180, expand=True, resample=Image.Resampling.BILINEAR)
     sofa_image_transformed = sofa_image_transformed.resize(
-        (round(sofa_image_transformed.width * scale / sofa_image.height), round(sofa_image_transformed.height * scale / sofa_image.height))
+        (round(sofa_image_transformed.width * scale * sofa_h / sofa_image.height), round(sofa_image_transformed.height * scale * sofa_h / sofa_image.height))
     )
 
     rendering_target.paste(
