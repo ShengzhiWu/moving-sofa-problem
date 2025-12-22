@@ -1,5 +1,6 @@
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+import taichi as ti
 from utils import get_sofa, monotonicly_interpolate
 
 def draw_pattern(image, id, min_pattern_size=6):  # 绘制随机花纹
@@ -54,6 +55,7 @@ def generate_sofa_image(
     is_forbidden,
     path,
     id = 0,
+    pattern_id = None,
     sofa_w = 3.5,
     sofa_h = 1,
     draw_text = True,
@@ -65,6 +67,8 @@ def generate_sofa_image(
     text_color = (255, 255, 255),
     area_factor = 1
 ):
+    if pattern_id is None:
+        pattern_id = id
     xs, ys, rotations = np.load(path + f'{id}.npy')
     sofa = get_sofa(is_forbidden, xs, ys, rotations, sofa_w=sofa_w, sofa_h=sofa_h, resolution=resolution, trajectory_upsampling=trajectory_upsampling)
     center = [
@@ -75,7 +79,7 @@ def generate_sofa_image(
     center[1] = (np.argmax(colume[::-1]) + (len(colume) - np.argmax(colume))) / 2
 
     image = np.ones(list(sofa.T.shape) + [4])
-    draw_pattern(image, id)  # 绘制随机花纹
+    draw_pattern(image, pattern_id)  # 绘制随机花纹
     image[:, :, 3] = sofa.T[::-1] * 255
     image = Image.fromarray(image.astype(np.uint8))
 
@@ -96,31 +100,36 @@ def generate_sofa_image(
 def generate_animated_sofa(
     is_forbidden,
     path,
-    id,  # 14453
+    id,
     start_time,
     duration,
     resolution,
     sofa_w = 3.5,
     sofa_h = 1,
-    rotation_speed_parameter = 0.4,  # 控制旋转与平移速度比例的参数，值越小，旋转相对于平移越快，但注意取0时旋转速度仍然 > 0
+    trajectory_upsampling = 101,
+    rotation_speed_parameter = 0.4,  # 控制旋转与平移速度比例的参数，值越小，旋转相对于平移越快，但注意取0时旋转速度仍然 > 0。如果指定了key_function，此参数不生效
     key_function = None,
+    pattern_id=None,
     draw_text = True,
     id_factor = 83,  # 显示的编号是输入的编号的多少倍
     text_size_factor = 0.06,
     text_color=(255, 255, 255),
     trajectory_updampling = 1,  # 在对轨迹进行单调化处理前先重新采样
-    data_post_process = None,  # 读取文件后的后处理
-    area_factor = 1
+    data_post_process = None,  # 读取文件后的后处理（仅影响动画路径，不影响沙发形状）
+    area_factor = 1  # 显示的面积值是实际算出的面积乘此系数
 ):
+    if pattern_id is None:
+        pattern_id = id
     image = generate_sofa_image(
         is_forbidden, path,
         id=id,
         sofa_w=sofa_w,
         sofa_h=sofa_h,
+        pattern_id=pattern_id,
         draw_text=draw_text,
         text_row_1=f'#{id * id_factor}',
         resolution=resolution,
-        trajectory_upsampling=101,
+        trajectory_upsampling=trajectory_upsampling,
         text_size=resolution * text_size_factor,
         text_color=text_color,
         area_factor=area_factor
@@ -156,28 +165,39 @@ def draw_sofa(
     ys,
     rotations,
     process,  # 运动进度，可以超过数组范围，超过的部分会自动线性延拓（注意延拓方向要么水平要么竖直，不支持斜向运动）
-    sofa_h = 1
+    sofa_h = 1,
+    v_estimate_point_num = 1,
+    stop_after_process = False
 ):
-    if process < 0:  # 延拓
-        if abs(xs[1] - xs[0]) > abs(ys[1] - ys[0]):  # 横向移动
-            x = xs[0] + (xs[1] - xs[0]) * process
-            y = ys[0]
+    if process < 0:  # 向前延拓
+        v_x = (xs[v_estimate_point_num] - xs[0]) / v_estimate_point_num
+        v_y = (ys[v_estimate_point_num] - ys[0]) / v_estimate_point_num
+        if abs(v_x) > abs(v_y):  # 横向移动
+            v_y = 0
         else:  # 纵向移动
-            x = xs[0]
-            y = ys[0] + (ys[1] - ys[0]) * process
+            v_x = 0
+        x = xs[0] + v_x * process
+        y = ys[0] + v_y * process
         rotation = rotations[0]
     elif process < len(xs):
         x = xs[process]
         y = ys[process]
         rotation = rotations[process]
-    else:  # 延拓
-        if abs(xs[-1] - xs[-2]) > abs(ys[-1] - ys[-2]):  # 横向移动
-            x = xs[-1] + (xs[-1] - xs[-2]) * (process - (len(xs) - 1))
-            y = ys[-1]
-        else:  # 纵向移动
+    else:  # 向后延拓
+        if stop_after_process:  # 停止在最后一个点
             x = xs[-1]
-            y = ys[-1] + (ys[-1] - ys[-2]) * (process - (len(xs) - 1))
-        rotation = rotations[-1]
+            y = ys[-1]
+            rotation = rotations[-1]
+        else:
+            v_x = (xs[-1] - xs[-1 - v_estimate_point_num]) / v_estimate_point_num
+            v_y = (ys[-1] - ys[-1 - v_estimate_point_num]) / v_estimate_point_num
+            if abs(v_x) > abs(v_y):  # 横向移动
+                v_y = 0
+            else:  # 纵向移动
+                v_x = 0
+            x = xs[-1] + v_x * (process - (len(xs) - 1))
+            y = ys[-1] + v_y * (process - (len(xs) - 1))
+            rotation = rotations[-1]
 
     sofa_image_transformed = sofa_image.rotate(rotation / np.pi * 180, expand=True, resample=Image.Resampling.BILINEAR)
     sofa_image_transformed = sofa_image_transformed.resize(
@@ -192,3 +212,55 @@ def draw_sofa(
         ),
         sofa_image_transformed
     )
+
+@ti.kernel
+def dilate_kernel(input_img: ti.template(), output_img: ti.template(), radius: int):  # type: ignore
+    """形态学膨胀kernel"""
+    height, width = input_img.shape
+    
+    for i, j in input_img:
+        max_val = input_img[i, j]
+        
+        # 在圆形结构元素范围内搜索最大值
+        for di in range(-radius, radius + 1):
+            for dj in range(-radius, radius + 1):
+                # 检查边界
+                ni = i + di
+                nj = j + dj
+                
+                if 0 <= ni < height and 0 <= nj < width:
+                    # 计算当前像素与中心像素的距离
+                    distance = ti.sqrt(di * di + dj * dj)
+                    if distance <= radius:
+                        current_val = input_img[ni, nj]
+                        if current_val > max_val:
+                            max_val = current_val
+        
+        output_img[i, j] = max_val
+
+def dilate(image: np.ndarray, radius: int) -> np.ndarray:
+    """
+    对二维图像进行形态学膨胀操作
+    
+    Args:
+        image: 输入图像，二维numpy数组
+        radius: 膨胀半径（结构元素半径）
+        
+    Returns:
+        膨胀后的图像，二维numpy数组
+    """
+    # 确保输入是二维数组
+    assert len(image.shape) == 2
+    
+    # 将numpy数组转换为taichi字段
+    height, width = image.shape
+    img_field = ti.field(ti.f32, shape=(height, width))
+    img_field.from_numpy(image.astype(np.float32))
+    
+    # 创建taichi field
+    result_field = ti.field(ti.f32, shape=(height, width))
+    
+    # 膨胀
+    dilate_kernel(img_field, result_field, radius)
+    
+    return result_field.to_numpy()

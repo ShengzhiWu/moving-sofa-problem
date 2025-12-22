@@ -303,7 +303,7 @@ def run_optimization(
     return maximal_area, best_xs, best_ys, best_rotations, final_sofa, maximal_area_record
 
 @ti.kernel
-def test_forbidden_function_kernel(image: ti.template(), x_min: float, x_max: float, y_min: float, y_max: float):  # type: ignore
+def test_forbidden_function_kernel(image: ti.template(), x_min: float, x_max: float, y_min: float, y_max: float):  # 测试双参数版的墙函数 # type: ignore
     for i, j in image:
         x = x_min + (x_max - x_min) * (i + 0.5) / image.shape[0]
         y = y_min + (y_max - y_min) * (j + 0.5) / image.shape[1]
@@ -312,20 +312,36 @@ def test_forbidden_function_kernel(image: ti.template(), x_min: float, x_max: fl
         else:
             image[i, j] = 0.0
 
-def test_forbidden_function(  # 测试障碍函数，返回一个位图
+@ti.kernel
+def test_forbidden_function_4_kernel(image: ti.template(), x_min: float, x_max: float, y_min: float, y_max: float, wall_normal_x: float, wall_normal_y: float):  # 测试四参数版的墙函数 # type: ignore
+    for i, j in image:
+        x = x_min + (x_max - x_min) * (i + 0.5) / image.shape[0]
+        y = y_min + (y_max - y_min) * (j + 0.5) / image.shape[1]
+        if is_forbidden(x - wall_normal_x * 0.5, y - wall_normal_y * 0.5, x + wall_normal_x * 0.5, y + wall_normal_y * 0.5):
+            image[i, j] = 1.0
+        else:
+            image[i, j] = 0.0
+
+def test_forbidden_function(
         forbidden_function,  # 一个函数，参数数量可以是2或4，分别对应(x, y)或(x0, y0, x1, y1)
         x_min, x_max, y_min, y_max,
-        resolution
+        resolution,
+        wall_normal = [0, 0.01]  # 此参数仅适用于4参数版本墙函数的测试
     ):
+    """测试障碍函数，返回一个位图"""
     if isinstance(resolution, int):
         resolution = (resolution, resolution)
 
     global is_forbidden
     is_forbidden = forbidden_function
-    assert get_parameter_count(is_forbidden) == 2
-
+    parameter_count = get_parameter_count(is_forbidden)
     image = ti.field(ti.f32, shape=resolution)
-    test_forbidden_function_kernel(image, x_min, x_max, y_min, y_max)
+    if parameter_count == 2:  # (x, y)
+        test_forbidden_function_kernel(image, x_min, x_max, y_min, y_max)
+    elif parameter_count == 4:  # (x0, y0, x1, y1)
+        test_forbidden_function_4_kernel(image, x_min, x_max, y_min, y_max, wall_normal[0], wall_normal[1])
+    else:
+        raise ValueError("forbidden_function must take 2 or 4 parameters")
 
     return image.to_numpy()
 
