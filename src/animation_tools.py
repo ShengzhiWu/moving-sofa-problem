@@ -164,7 +164,7 @@ def draw_sofa(
     xs,
     ys,
     rotations,
-    process,  # 运动进度，可以超过数组范围，超过的部分会自动线性延拓（注意延拓方向要么水平要么竖直，不支持斜向运动）
+    process,  # 运动进度，单位为帧，可以超过数组范围，超过的部分会自动线性延拓（注意延拓方向要么水平要么竖直，不支持斜向运动）
     sofa_h = 1,
     v_estimate_point_num = 1,
     stop_after_process = False

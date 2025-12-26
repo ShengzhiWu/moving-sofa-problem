@@ -43,13 +43,13 @@ def transform_local_to_world(
     return world_x, world_y
 
 @ti.kernel
-def compute_survive(sofa_w: float, sofa_h: float, x_field: ti.template(), y_field: ti.template(), rotation_field: ti.template(), survive_mask: ti.template()):  # 根据轨迹计算能通过的图形 # type: ignore
+def compute_survive_domain(x_min: float, x_max: float, y_min: float, y_max: float, x_field: ti.template(), y_field: ti.template(), rotation_field: ti.template(), survive_mask: ti.template()):  # 根据轨迹计算能通过的图形 # type: ignore
     for i, j in survive_mask:
         survive_mask[i, j] = -1  # -1表示幸存
 
         # local coords
-        local_x = (i + 0.5) / survive_mask.shape[0] * sofa_w - sofa_w * 0.5
-        local_y = (j + 0.5) / survive_mask.shape[1] * sofa_h - sofa_h * 0.5
+        local_x = (i + 0.5) / survive_mask.shape[0] * (x_max - x_min) + x_min
+        local_y = (j + 0.5) / survive_mask.shape[1] * (y_max - y_min) + y_min
         for t in range(x_field.shape[0]):
             world_x, world_y = transform_local_to_world(local_x, local_y, x_field[t], y_field[t], rotation_field[t])
             # check forbidden region
@@ -58,13 +58,13 @@ def compute_survive(sofa_w: float, sofa_h: float, x_field: ti.template(), y_fiel
                 break
 
 @ti.kernel
-def compute_survive_2(sofa_w: float, sofa_h: float, x_field: ti.template(), y_field: ti.template(), rotation_field: ti.template(), survive_mask: ti.template()):  # 根据轨迹计算能通过的图形，其中进入墙壁的判定函数需要输入相邻时间步的两个点 # type: ignore
+def compute_survive_domain_2(x_min: float, x_max: float, y_min: float, y_max: float, x_field: ti.template(), y_field: ti.template(), rotation_field: ti.template(), survive_mask: ti.template()):  # 根据轨迹计算能通过的图形，其中进入墙壁的判定函数需要输入相邻时间步的两个点 # type: ignore
     for i, j in survive_mask:
         survive_mask[i, j] = -1  # -1表示幸存
 
         # local coords
-        local_x = (i + 0.5) / survive_mask.shape[0] * sofa_w - sofa_w * 0.5
-        local_y = (j + 0.5) / survive_mask.shape[1] * sofa_h - sofa_h * 0.5
+        local_x = (i + 0.5) / survive_mask.shape[0] * (x_max - x_min) + x_min
+        local_y = (j + 0.5) / survive_mask.shape[1] * (y_max - y_min) + y_min
         world_x, world_y = transform_local_to_world(local_x, local_y, x_field[0], y_field[0], rotation_field[0])
         for t in range(1, x_field.shape[0]):
             world_x_new, world_y_new = transform_local_to_world(local_x, local_y, x_field[t], y_field[t], rotation_field[t])
@@ -73,6 +73,14 @@ def compute_survive_2(sofa_w: float, sofa_h: float, x_field: ti.template(), y_fi
                 survive_mask[i, j] = t  # 非负整数表示未幸存，值为这个像素被削掉的时刻
                 break
             world_x, world_y = world_x_new, world_y_new
+
+
+def compute_survive(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask, center_x=0, center_y=0):  # 根据轨迹计算能通过的图形
+    compute_survive_domain(-sofa_w * 0.5 + center_x, sofa_w * 0.5 + center_x, -sofa_h * 0.5 + center_y, sofa_h * 0.5 + center_y, x_field, y_field, rotation_field, survive_mask)
+
+
+def compute_survive_2(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask, center_x=0, center_y=0):  # 根据轨迹计算能通过的图形，其中进入墙壁的判定函数需要输入相邻时间步的两个点
+    compute_survive_domain_2(-sofa_w * 0.5 + center_x, sofa_w * 0.5 + center_x, -sofa_h * 0.5 + center_y, sofa_h * 0.5 + center_y, x_field, y_field, rotation_field, survive_mask)
 
 def generate_fields(
     sofa_w = 3.5,   # 求解域的尺寸
@@ -100,8 +108,10 @@ def get_sofa(  # 根据轨迹计算沙发形状，返回一张位图
     xs,
     ys,
     rotations,
-    sofa_w = 3.5,   # 求解域的尺寸
-    sofa_h = 1.0,   # 求解域的尺寸
+    sofa_w = 3.5,  # 求解域的尺寸
+    sofa_h = 1.0,  # 求解域的尺寸
+    center_x = 0,  # 画面中心对应的真实世界的坐标 
+    center_y = 0,  # 画面中心对应的真实世界的坐标 
     resolution = 512,  # 用一个位图表示沙发形状，这个参数是横向分辨率
     trajectory_upsampling = 10,  # 在控制点之间插值。注意如果不在控制点之间差值将会得到不合理的结果，因为算法会尝试在控制点之间引入跃变而跳过障碍
     trajectory_upsampling_order = 1,  # 插值阶数
@@ -119,9 +129,9 @@ def get_sofa(  # 根据轨迹计算沙发形状，返回一张位图
     rotation_field.from_numpy(zoom(rotations, zoom=trajectory_upsampling, order=trajectory_upsampling_order))
 
     if get_parameter_count(is_forbidden) == 2:
-        compute_survive(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask)
+        compute_survive(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask, center_x=center_x, center_y=center_y)
     else:
-        compute_survive_2(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask)
+        compute_survive_2(sofa_w, sofa_h, x_field, y_field, rotation_field, survive_mask, center_x=center_x, center_y=center_y)
 
     survive_mask_numpy = survive_mask.to_numpy()
 
@@ -328,7 +338,7 @@ def test_forbidden_function(
         resolution,
         wall_normal = [0, 0.01]  # 此参数仅适用于4参数版本墙函数的测试
     ):
-    """测试障碍函数，返回一个位图"""
+    """测试障碍函数，返回一个NumPy数组"""
     if isinstance(resolution, int):
         resolution = (resolution, resolution)
 
