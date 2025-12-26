@@ -16,6 +16,8 @@
 
 ![紧邻双拐角](hq_images/紧邻双拐角.png)
 
+视频展示见[沙发的50万次进化](https://www.bilibili.com/video/BV1YwpXzGEiA/)。这个视频包含在一个合集中，在视频页面内点击即可查看各种类型沙发的演示
+
 ## TODO
 
 考虑其他变种：
