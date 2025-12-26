@@ -176,7 +176,10 @@ def get_area(
 
     return get_area_kernel(sofa_w, sofa_h, survive_mask)
 
-def mutate(xs, ys, rs, mutation_sigma_pos, mutation_sigma_rotation):
+def mutate(
+    xs, ys, rs, mutation_sigma_pos, mutation_sigma_rotation,
+    boundary_conditions='fixed'  # 边界条件，可以是'fixed'、'periodic'、'free'
+):
     # 经过测试，这种变异方式进化效率极低，因为稍微一改变就很容易变差
     # TODO: 这里有待重新测试
     # new_xs = xs + np.random.randn(steps) * 0.0001
@@ -187,18 +190,19 @@ def mutate(xs, ys, rs, mutation_sigma_pos, mutation_sigma_rotation):
     new_xs = xs.copy()
     new_ys = ys.copy()
     new_rs = rs.copy()
-    i = np.random.randint(1, len(xs) - 1)
+    if boundary_conditions == 'fixed':
+        i = np.random.randint(1, len(xs) - 1)
+    elif boundary_conditions == 'periodic':
+        i = np.random.randint(0, len(xs) - 1)
+    elif boundary_conditions == 'free':
+        i = np.random.randint(0, len(xs))
     new_xs[i] += np.random.randn() * mutation_sigma_pos
     new_ys[i] += np.random.randn() * mutation_sigma_pos
     new_rs[i] += np.random.randn() * mutation_sigma_rotation
-
-    # keep endpoints exact
-    new_xs[0] = xs[0]
-    new_xs[-1] = xs[-1]
-    new_ys[0] = ys[0]
-    new_ys[-1] = ys[-1]
-    new_rs[0] = rs[0]
-    new_rs[-1] = rs[-1]
+    if boundary_conditions == 'periodic' and i == 0:
+        new_xs[-1] = new_xs[0]
+        new_ys[-1] = new_ys[0]
+        new_rs[-1] = round((new_rs[-1] - new_rs[0]) / (np.pi * 2)) * np.pi * 2 + new_rs[0]  # 保持首尾旋转角度一致
 
     return new_xs, new_ys, new_rs
 
@@ -219,7 +223,8 @@ def run_optimization(
     save_image_every = None,
     save_image_path = 'images/sofa_',
     save_image_start_id = 0,
-    save_trajectory_path = 'trajectory/sofa_'  # 自动在每次输出图片时输出路径的npy文件。如果设成None，则不输出npy文件
+    save_trajectory_path = 'trajectory/sofa_',  # 自动在每次输出图片时输出路径的npy文件。如果设成None，则不输出npy文件
+    boundary_conditions = 'fixed'  # 边界条件，可以是'fixed'、'periodic'、'free'
 ):
     best_xs, best_ys, best_rotations = initial_xs, initial_ys, initial_rotations
     global is_forbidden
@@ -261,7 +266,7 @@ def run_optimization(
 
     t0 = time.time()
     for iteration in range(iterations):
-        new_xs, new_ys, new_rs = mutate(best_xs, best_ys, best_rotations, mutation_sigma_pos, mutation_sigma_rotation)
+        new_xs, new_ys, new_rs = mutate(best_xs, best_ys, best_rotations, mutation_sigma_pos, mutation_sigma_rotation, boundary_conditions=boundary_conditions)
         # copy to taichi fields
         x_field.from_numpy(zoom(new_xs, zoom=trajectory_upsampling, order=trajectory_upsampling_order))
         y_field.from_numpy(zoom(new_ys, zoom=trajectory_upsampling, order=trajectory_upsampling_order))
