@@ -264,3 +264,42 @@ def dilate(image: np.ndarray, radius: int) -> np.ndarray:
     dilate_kernel(img_field, result_field, radius)
     
     return result_field.to_numpy()
+
+def bisect(func, low, high, tol=1e-5, max_iter=100):
+    """二分法求解func在[low, high]区间内的零点"""
+    f_low = func(low)
+    
+    for _ in range(max_iter):
+        mid = (low + high) / 2
+        f_mid = func(mid)
+        
+        if abs(f_mid) < tol:
+            return mid
+        
+        if f_low * f_mid < 0:
+            high = mid
+        else:
+            low = mid
+            f_low = f_mid
+    
+    return (low + high) / 2
+
+def generate_ids(start, middle, end, steps):
+    """
+    生成一个整数数组，使得第一项为start，最后一项为end，中间项近似为middle，且数组长度为steps。
+    
+    通过自动选取常数k、b、p使得 k * (p ** i - 1) + b 满足要求实现。
+    """
+    b = start
+
+    def get_k(p):
+        return (end - b) / (p ** (steps - 1) - 1)
+    
+    def get_middle(p):
+        k = get_k(p)
+        return k * (p ** (steps / 2) - 1) + b
+    
+    p = bisect(lambda p: get_middle(p) - middle, 1.001, 10.0)  # 似乎是超越方程，使用二分法求解
+    k = get_k(p)
+    
+    return np.round(k * (p ** np.arange(steps) - 1) + b).astype(int)
