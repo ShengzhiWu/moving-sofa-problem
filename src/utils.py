@@ -196,6 +196,8 @@ def mutate(
         i = np.random.randint(0, len(xs) - 1)
     elif boundary_conditions == 'free':
         i = np.random.randint(0, len(xs))
+    else:
+        raise ValueError(f"Unknown boundary condition: {boundary_conditions}")
     new_xs[i] += np.random.randn() * mutation_sigma_pos
     new_ys[i] += np.random.randn() * mutation_sigma_pos
     new_rs[i] += np.random.randn() * mutation_sigma_rotation
