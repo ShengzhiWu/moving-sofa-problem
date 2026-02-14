@@ -510,8 +510,12 @@ def run_optimization(
     sofa_h = 1.0,   # 求解域的尺寸
     resolution = 512,  # 用一个位图表示沙发形状，这个参数是横向分辨率
     iterations = 10000,  # 迭代次数
+    auto_divide_trajectory = False,  # 自动细分轨迹
+    auto_divide_threshold_10000 = 0.0003,  # 自动细分轨迹的阈值。如果10000步内相对增长量小于此值则进行一次细分
+    auto_divide_upsampling_order = 1,  # 自动细分轨迹时的插值阶数
     mutation_sigma_pos = 0.1,  # 变异率
     mutation_sigma_rotation = 0.02,  # 变异率
+    auto_adjust_mutation_rate = False,  # 自动调整变异率
     symmetrize_function = None,  # 对称化函数
     trajectory_upsampling = 10,  # 在控制点之间插值。注意如果不在控制点之间差值将会得到不合理的结果，因为算法会尝试在控制点之间引入跃变而跳过障碍
     trajectory_upsampling_order = 1,  # 插值阶数
@@ -624,6 +628,28 @@ def run_optimization(
             image.save(save_image_path + f'{id}.png')
             np.save(save_trajectory_path + f'{id}.npy', np.array([best_xs, best_ys, best_rotations]))
 
+        # 自动调整变异率
+        if auto_adjust_mutation_rate and (iteration + 1) % 1000 == 0:  # 每1000步考虑一次调整变异率
+            getting_better_rate = len(set(maximal_area_record[-1000:])) / 1000
+            if getting_better_rate < 0.005:  # 大量迭代步都没有找到更优解，说明可能变异率过大了
+                mutation_sigma_pos *= 0.9
+                mutation_sigma_rotation *= 0.9
+            elif getting_better_rate > 0.01:  # 大量迭代步都找到了更优解，说明可能变异率过小了
+                mutation_sigma_pos *= 1.1
+                mutation_sigma_rotation *= 1.1
+
+        # 自动细分轨迹
+        if auto_divide_trajectory and (iteration + 1) % 10000 == 0 and iteration + 1 < iterations:  # 每10000步考虑一次细分轨迹
+            if maximal_area_record[-1] / maximal_area_record[-10000] < (1 + auto_divide_threshold_10000):  # 进展缓慢，说明当前离散化分辨率下可能已经收敛到最优了
+                resolution_now = len(best_xs)
+                best_xs = zoom(best_xs, zoom=(resolution_now * 2 - 1) / resolution_now, order=auto_divide_upsampling_order)
+                best_ys = zoom(best_ys, zoom=(resolution_now * 2 - 1) / resolution_now, order=auto_divide_upsampling_order)
+                best_rotations = zoom(best_rotations, zoom=(resolution_now * 2 - 1) / resolution_now, order=auto_divide_upsampling_order)
+                control_point_num = len(best_xs)
+                x_field = ti.field(dtype=ti.f32, shape=control_point_num * trajectory_upsampling)
+                y_field = ti.field(dtype=ti.f32, shape=control_point_num * trajectory_upsampling)
+                rotation_field = ti.field(dtype=ti.f32, shape=control_point_num * trajectory_upsampling)
+
     t1 = time.time()
     print(f"Done. Time: {t1-t0:.2f}s")
 
@@ -650,8 +676,12 @@ def run_optimization_3d(
     sofa_d = 1.0,   # 求解域的尺寸
     resolution = 64,  # 用一个位图表示沙发形状，这个参数是X方向的分辨率
     iterations = 10000,  # 迭代次数
+    auto_divide_trajectory = False,  # 自动细分轨迹
+    auto_divide_threshold_10000 = 0.0003,  # 自动细分轨迹的阈值。如果10000步内相对增长量小于此值则进行一次细分
+    auto_divide_upsampling_order = 1,  # 自动细分轨迹时的插值阶数
     mutation_sigma_pos = 0.1,  # 变异率
-    mutation_sigma_rotation = 0.02,  # 变异率
+    mutation_sigma_rotation = 0.1,  # 变异率 0.02
+    auto_adjust_mutation_rate = False,  # 自动调整变异率
     symmetrize_function = None,  # 对称化函数
     trajectory_upsampling = 10,  # 在控制点之间插值。注意如果不在控制点之间差值将会得到不合理的结果，因为算法会尝试在控制点之间引入跃变而跳过障碍
     trajectory_upsampling_order = 1,  # 插值阶数
@@ -767,6 +797,31 @@ def run_optimization_3d(
             #     compute_survive_3d_2(sofa_w, sofa_h, sofa_d, x_field, y_field, z_field, rotation_matrix_field, survive_mask)
             # sofa = survive_mask.to_numpy() < 0
             # TODO: 保存图片
+
+        # 自动调整变异率
+        if auto_adjust_mutation_rate and (iteration + 1) % 1000 == 0:  # 每1000步考虑一次调整变异率
+            getting_better_rate = len(set(maximal_volume_record[-1000:])) / 1000
+            if getting_better_rate < 0.005:  # 大量迭代步都没有找到更优解，说明可能变异率过大了
+                mutation_sigma_pos *= 0.9
+                mutation_sigma_rotation *= 0.9
+            elif getting_better_rate > 0.01:  # 大量迭代步都找到了更优解，说明可能变异率过小了
+                mutation_sigma_pos *= 1.1
+                mutation_sigma_rotation *= 1.1
+
+        # 自动细分轨迹
+        if auto_divide_trajectory and (iteration + 1) % 10000 == 0 and iteration + 1 < iterations:  # 每10000步考虑一次细分轨迹
+            if maximal_volume_record[-1] / maximal_volume_record[-10000] < (1 + auto_divide_threshold_10000):  # 进展缓慢，说明当前离散化分辨率下可能已经收敛到最优了
+                resolution_now = len(best_xs)
+                best_xs = zoom(best_xs, zoom=(resolution_now * 2 - 1) / resolution_now, order=auto_divide_upsampling_order)
+                best_ys = zoom(best_ys, zoom=(resolution_now * 2 - 1) / resolution_now, order=auto_divide_upsampling_order)
+                best_zs = zoom(best_zs, zoom=(resolution_now * 2 - 1) / resolution_now, order=auto_divide_upsampling_order)
+                best_rotations = zoom(best_rotations, zoom=((resolution_now * 2 - 1) / resolution_now, 1), order=auto_divide_upsampling_order)
+                control_point_num = len(best_xs)
+                x_field = ti.field(dtype=ti.f32, shape=control_point_num * trajectory_upsampling)
+                y_field = ti.field(dtype=ti.f32, shape=control_point_num * trajectory_upsampling)
+                z_field = ti.field(dtype=ti.f32, shape=control_point_num * trajectory_upsampling)
+                rotation_field = ti.field(dtype=ti.f32, shape=(control_point_num * trajectory_upsampling, 4))  # 四元数数组
+                rotation_matrix_field = ti.Matrix.field(3, 3, dtype=ti.f32, shape=(control_point_num * trajectory_upsampling,))  # 旋转矩阵数组
 
     t1 = time.time()
     print(f"Done. Time: {t1-t0:.2f}s")
