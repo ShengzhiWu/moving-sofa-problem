@@ -634,9 +634,11 @@ def run_optimization(
             if getting_better_rate < 0.005:  # 大量迭代步都没有找到更优解，说明可能变异率过大了
                 mutation_sigma_pos *= 0.9
                 mutation_sigma_rotation *= 0.9
+                print(f"Adjusted mutation rate, mutation_sigma_pos = {mutation_sigma_pos}, mutation_sigma_rotation = {mutation_sigma_rotation}")
             elif getting_better_rate > 0.01:  # 大量迭代步都找到了更优解，说明可能变异率过小了
                 mutation_sigma_pos *= 1.1
                 mutation_sigma_rotation *= 1.1
+                print(f"Adjusted mutation rate, mutation_sigma_pos = {mutation_sigma_pos}, mutation_sigma_rotation = {mutation_sigma_rotation}")
 
         # 自动细分轨迹
         if auto_divide_trajectory and (iteration + 1) % 10000 == 0 and iteration + 1 < iterations:  # 每10000步考虑一次细分轨迹
@@ -649,6 +651,7 @@ def run_optimization(
                 x_field = ti.field(dtype=ti.f32, shape=control_point_num * trajectory_upsampling)
                 y_field = ti.field(dtype=ti.f32, shape=control_point_num * trajectory_upsampling)
                 rotation_field = ti.field(dtype=ti.f32, shape=control_point_num * trajectory_upsampling)
+                print(f"Auto-divided trajectory, control_point_num = {control_point_num}")
 
     t1 = time.time()
     print(f"Done. Time: {t1-t0:.2f}s")
@@ -804,9 +807,11 @@ def run_optimization_3d(
             if getting_better_rate < 0.005:  # 大量迭代步都没有找到更优解，说明可能变异率过大了
                 mutation_sigma_pos *= 0.9
                 mutation_sigma_rotation *= 0.9
+                print(f"Adjusted mutation rate, mutation_sigma_pos = {mutation_sigma_pos}, mutation_sigma_rotation = {mutation_sigma_rotation}")
             elif getting_better_rate > 0.01:  # 大量迭代步都找到了更优解，说明可能变异率过小了
                 mutation_sigma_pos *= 1.1
                 mutation_sigma_rotation *= 1.1
+                print(f"Adjusted mutation rate, mutation_sigma_pos = {mutation_sigma_pos}, mutation_sigma_rotation = {mutation_sigma_rotation}")
 
         # 自动细分轨迹
         if auto_divide_trajectory and (iteration + 1) % 10000 == 0 and iteration + 1 < iterations:  # 每10000步考虑一次细分轨迹
@@ -822,6 +827,7 @@ def run_optimization_3d(
                 z_field = ti.field(dtype=ti.f32, shape=control_point_num * trajectory_upsampling)
                 rotation_field = ti.field(dtype=ti.f32, shape=(control_point_num * trajectory_upsampling, 4))  # 四元数数组
                 rotation_matrix_field = ti.Matrix.field(3, 3, dtype=ti.f32, shape=(control_point_num * trajectory_upsampling,))  # 旋转矩阵数组
+                print(f"Auto-divided trajectory, control_point_num = {control_point_num}")
 
     t1 = time.time()
     print(f"Done. Time: {t1-t0:.2f}s")
