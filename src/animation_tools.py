@@ -200,9 +200,10 @@ def draw_sofa(
             rotation = rotations[-1]
 
     sofa_image_transformed = sofa_image.rotate(rotation / np.pi * 180, expand=True, resample=Image.Resampling.BILINEAR)
-    sofa_image_transformed = sofa_image_transformed.resize(
-        (round(sofa_image_transformed.width * scale * sofa_h / sofa_image.height), round(sofa_image_transformed.height * scale * sofa_h / sofa_image.height))
-    )
+    sofa_image_transformed = sofa_image_transformed.resize((
+        round(sofa_image_transformed.width * scale * sofa_h / sofa_image.height),
+        round(sofa_image_transformed.height * scale * sofa_h / sofa_image.height)
+    ))
 
     rendering_target.paste(
         sofa_image_transformed,
