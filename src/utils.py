@@ -502,32 +502,65 @@ def mutate_3d(
     return new_xs, new_ys, new_zs, new_rs
 
 def run_optimization(
-    forbidden_function,  # 一个函数，参数数量可以是2或4，分别对应(x, y)或(x0, y0, x1, y1)
+    forbidden_function,
     initial_xs,
     initial_ys,
     initial_rotations,
-    sofa_w = 3.5,   # 求解域的尺寸
-    sofa_h = 1.0,   # 求解域的尺寸
-    resolution = 512,  # 用一个位图表示沙发形状，这个参数是横向分辨率
-    iterations = 10000,  # 迭代次数
-    auto_divide_trajectory = False,  # 自动细分轨迹
-    auto_divide_threshold_10000 = 0.0003,  # 自动细分轨迹的阈值。如果10000步内相对增长量小于此值则进行一次细分
-    auto_divide_upsampling_order = 1,  # 自动细分轨迹时的插值阶数
-    mutation_sigma_pos = 0.1,  # 变异率
-    mutation_sigma_rotation = 0.02,  # 变异率
-    auto_adjust_mutation_rate = False,  # 自动调整变异率
-    symmetrize_function = None,  # 对称化函数
-    trajectory_upsampling = 10,  # 在控制点之间插值。注意如果不在控制点之间差值将会得到不合理的结果，因为算法会尝试在控制点之间引入跃变而跳过障碍
-    trajectory_upsampling_order = 1,  # 插值阶数
-    regularization = 0.,  # 正则化
-    regularization_mode = 'L2',  # 正则化模式，可以是'L1'或'L2'。L1能更好地抑制毛刺，L2能让轨迹点间距更均匀
+    sofa_w = 3.5,
+    sofa_h = 1.0,
+    resolution = 512,
+    iterations = 10000,
+    auto_divide_trajectory = False,
+    auto_divide_threshold_10000 = 0.0003,
+    auto_divide_upsampling_order = 1,
+    mutation_sigma_pos = 0.1,
+    mutation_sigma_rotation = 0.02,
+    auto_adjust_mutation_rate = False,
+    symmetrize_function = None,
+    trajectory_upsampling = 10,
+    trajectory_upsampling_order = 1,
+    regularization = 0.,
+    regularization_mode = 'L2',
     print_every = None,
     save_image_every = None,
     save_image_path = 'images/sofa_',
     save_image_start_id = 0,
-    save_trajectory_path = 'trajectory/sofa_',  # 自动在每次输出图片时输出路径的npy文件。如果设成None，则不输出npy文件
-    boundary_conditions = 'fixed'  # 边界条件，可以是'fixed'、'periodic'、'free'
+    save_trajectory_path = 'trajectory/sofa_',
+    boundary_conditions = 'fixed'
 ):
+    '''
+    # 运行优化算法
+    ## Parameters:
+    - forbidden_function: 一个 taichi kernel 函数，参数数量可以是2或4，分别对应(x, y)或(x0, y0, x1, y1)，用于判断一个点或一条线段是否穿过了障碍
+    - initial_xs, initial_ys: 初始轨迹的控制点坐标
+    - initial_rotations: 初始轨迹的旋转角度（弧度制）
+    - sofa_w, sofa_h: 求解域的尺寸（数学空间中的尺寸，非像素）
+    - resolution: 用一个位图表示沙发形状，这个参数是横向分辨率
+    - iterations: 迭代次数
+    - auto_divide_trajectory: 是否自动细分轨迹
+    - auto_divide_threshold_10000: 自动细分轨迹的阈值。如果10000步内相对增长量小于此值则进行一次细分
+    - auto_divide_upsampling_order: 自动细分轨迹时的插值阶数
+    - mutation_sigma_pos: 位置变异率
+    - mutation_sigma_rotation: 旋转变异率
+    - auto_adjust_mutation_rate: 是否自动调整变异率。调整策略是如果10000步内没有找到更优解则增加变异率，否则减少变异率
+    - symmetrize_function: 对称化函数，输入为(xs, ys, rotations)，输出也为(xs, ys, rotations)，用于在每次变异后对轨迹进行对称化处理。设为None则不进行对称化
+    - trajectory_upsampling: 在控制点之间插值。注意如果不在控制点之间差值将会得到不合理的结果，因为算法会尝试在控制点之间引入跃变而跳过障碍
+    - trajectory_upsampling_order: 插值阶数
+    - regularization: 正则化。大的值可以抑制轨道抖动，但会导致结果偏离局部最优（向变平滑的方向偏）
+    - regularization_mode: 正则化模式，可以是'L1'或'L2'。L1能更好地抑制毛刺，L2能让轨迹点间距更均匀
+    - print_every: 每隔多少步打印一次信息
+    - save_image_every: 每隔多少步保存一次图片
+    - save_image_path: 保存图片的路径
+    - save_image_start_id: 保存图片和npy文件的的起始编号
+    - save_trajectory_path: 自动在每次输出图片时输出路径的npy文件。如果设成None，则不输出npy文件
+    - boundary_conditions: 轨道边界条件，可以是'fixed'、'periodic'、'free'
+    ## Outputs:
+    - maximal_area: 最优解的面积
+    - best_xs, best_ys, best_rotations: 最优解的轨迹
+    - final_sofa: 最优解的沙发形状（位图）
+    - maximal_area_record: 每次变异后沙发面积的记录
+    '''
+
     assert regularization >= 0, "Regularization must be non-negative"
     if regularization > 0:
         assert regularization_mode in ['L1', 'L2'], "Regularization_mode must be 'L1' or 'L2'"
@@ -669,34 +702,67 @@ def run_optimization(
     return maximal_area, best_xs, best_ys, best_rotations, final_sofa, maximal_area_record
 
 def run_optimization_3d(
-    forbidden_function,  # 一个函数，参数数量可以是3或6，分别对应(x, y, z)或(x0, y0, z0, x1, y1, z1)
+    forbidden_function,
     initial_xs,
     initial_ys,
     initial_zs,
-    initial_rotations,  # 每个元素是一个单位四元数
-    sofa_w = 1.0,   # 求解域的尺寸
-    sofa_h = 1.0,   # 求解域的尺寸
-    sofa_d = 1.0,   # 求解域的尺寸
-    resolution = 64,  # 用一个位图表示沙发形状，这个参数是X方向的分辨率
-    iterations = 10000,  # 迭代次数
-    auto_divide_trajectory = False,  # 自动细分轨迹
-    auto_divide_threshold_10000 = 0.0003,  # 自动细分轨迹的阈值。如果10000步内相对增长量小于此值则进行一次细分
-    auto_divide_upsampling_order = 1,  # 自动细分轨迹时的插值阶数
-    mutation_sigma_pos = 0.1,  # 变异率
-    mutation_sigma_rotation = 0.1,  # 变异率 0.02
-    auto_adjust_mutation_rate = False,  # 自动调整变异率
-    symmetrize_function = None,  # 对称化函数
-    trajectory_upsampling = 10,  # 在控制点之间插值。注意如果不在控制点之间差值将会得到不合理的结果，因为算法会尝试在控制点之间引入跃变而跳过障碍
-    trajectory_upsampling_order = 1,  # 插值阶数
-    regularization = 0.,  # 正则化
-    regularization_mode = 'L2',  # 正则化模式，可以是'L1'或'L2'。L1能更好地抑制毛刺，L2能让轨迹点间距更均匀
+    initial_rotations,
+    sofa_w = 1.0,
+    sofa_h = 1.0,
+    sofa_d = 1.0,
+    resolution = 64,
+    iterations = 10000,
+    auto_divide_trajectory = False,
+    auto_divide_threshold_10000 = 0.0003,
+    auto_divide_upsampling_order = 1,
+    mutation_sigma_pos = 0.1,
+    mutation_sigma_rotation = 0.1,
+    auto_adjust_mutation_rate = False,
+    symmetrize_function = None,
+    trajectory_upsampling = 10,
+    trajectory_upsampling_order = 1,
+    regularization = 0.,
+    regularization_mode = 'L2',
     print_every = None,
     save_image_every = None,
     save_image_path = 'images/sofa_',
     save_image_start_id = 0,
-    save_trajectory_path = 'trajectory/sofa_',  # 自动在每次输出图片时输出路径的npy文件。如果设成None，则不输出npy文件
-    boundary_conditions = 'fixed'  # 边界条件，可以是'fixed'、'periodic'、'free'
+    save_trajectory_path = 'trajectory/sofa_',
+    boundary_conditions = 'fixed'
 ):
+    '''
+    # 运行优化算法（3D版本）
+    ## Parameters:
+    - forbidden_function: 一个 taichi kernel 函数，参数数量可以是3或6，分别对应(x, y, z)或(x0, y0, z0, x1, y1, z1)，用于判断一个点或一条线段是否穿过了障碍
+    - initial_xs, initial_ys, initial_zs: 初始轨迹的控制点坐标
+    - initial_rotations: 初始轨迹的旋转（四元数）
+    - sofa_w, sofa_h, sofa_d: 求解域的尺寸（数学空间中的尺寸，非像素）
+    - resolution: 用一个位图表示沙发形状，这个参数是横向分辨率
+    - iterations: 迭代次数
+    - auto_divide_trajectory: 是否自动细分轨迹
+    - auto_divide_threshold_10000: 自动细分轨迹的阈值。如果10000步内相对增长量小于此值则进行一次细分
+    - auto_divide_upsampling_order: 自动细分轨迹时的插值阶数
+    - mutation_sigma_pos: 位置变异率
+    - mutation_sigma_rotation: 旋转变异率
+    - auto_adjust_mutation_rate: 是否自动调整变异率。调整策略是如果10000步内没有找到更优解则增加变异率，否则减少变异率
+    - symmetrize_function: 对称化函数，输入为(xs, ys, rotations)，输出也为(xs, ys, rotations)，用于在每次变异后对轨迹进行对称化处理。设为None则不进行对称化
+    - trajectory_upsampling: 在控制点之间插值。注意如果不在控制点之间差值将会得到不合理的结果，因为算法会尝试在控制点之间引入跃变而跳过障碍
+    - trajectory_upsampling_order: 插值阶数
+    - regularization: 正则化。大的值可以抑制轨道抖动，但会导致结果偏离局部最优（向变平滑的方向偏）
+    - regularization_mode: 正则化模式，可以是'L1'或'L2'。L1能更好地抑制毛刺，L2能让轨迹点间距更均匀
+    - print_every: 每隔多少步打印一次信息
+    - save_image_every: 每隔多少步保存一次图片
+    - save_image_path: 保存图片的路径
+    - save_image_start_id: 保存图片和npy文件的的起始编号
+    - save_trajectory_path: 自动在每次输出图片时输出路径的npy文件。如果设成None，则不输出npy文件
+    - boundary_conditions: 轨道边界条件，可以是'fixed'、'periodic'、'free'
+    ## Outputs:
+    - maximal_area: 最优解的面积
+    - best_xs, best_ys, best_zs, best_rotations: 最优解的轨迹
+    - final_sofa: 最优解的沙发形状（位图）
+    - maximal_area_record: 每次变异后沙发面积的记录
+    '''
+
     assert regularization >= 0, "Regularization must be non-negative"
     if regularization > 0:
         assert regularization_mode in ['L1', 'L2'], "Regularization_mode must be 'L1' or 'L2'"
