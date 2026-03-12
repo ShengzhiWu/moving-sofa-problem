@@ -129,6 +129,69 @@ def transform_local_to_world_3d(
     world_z = rotation_matrix[2, 0] * local_x + rotation_matrix[2, 1] * local_y + rotation_matrix[2, 2] * local_z + z
     return world_x, world_y, world_z
 
+def inverse_transformations(xs, ys, rotations):
+    '''
+    计算一系列变换（平移 + 旋转）的逆变换，或者说计算轨道的逆轨道
+
+    A相对于B的运动轨道的逆轨道定义为B相对于A的运动轨迹。注意执行两次逆会得到跟原先一样的轨道
+    '''
+
+    xs_inv = []
+    ys_inv = []
+    rotations_inv = -rotations
+    for x, y, angle in zip(-xs, -ys, rotations_inv):
+        rotation_matrix = np.array([
+            [np.cos(angle), -np.sin(angle)],
+            [np.sin(angle),  np.cos(angle)]
+        ])
+        x_inv, y_inv = rotation_matrix @ np.array([x, y])
+        xs_inv.append(x_inv)
+        ys_inv.append(y_inv)
+    xs_inv = np.array(xs_inv)
+    ys_inv = np.array(ys_inv)
+
+    return xs_inv, ys_inv, rotations_inv
+
+# 赋予n次旋转对称性
+def symmetrize_rotation(xs, ys, n):
+    '''
+    # 对轨迹进行n次旋转对称
+    ## Parameters
+    - xs, ys: 轨迹的控制点坐标
+    - n: 旋转对称的次数，必须整除控制点数量或除控制点数量余1。如果余1，控制点首尾必须重合
+    ## Outputs:
+    - xs_sym, ys_sym: 进行旋转对称化后的轨迹控制点坐标
+    '''
+
+    assert len(xs) % n in [0, 1]
+    len_mod_n = len(xs) % n
+    if len_mod_n == 1:
+        assert abs(xs[0] - xs[-1]) < 1e-15 and abs(ys[0] - ys[-1]) < 1e-15, "如果控制点数量除以n余1，首尾必须重合"
+        xs = xs[:-1]
+        ys = ys[:-1]
+    
+    points = np.stack([xs, ys], axis=-1)
+
+    points_sym_cw = np.zeros_like(points)  # 顺时针对称化后的点
+    points_sym_ccw = np.zeros_like(points)  # 逆时针对称化后的点
+    for i in range(n):
+        angle = 2 * np.pi / n * i
+        rotation_matrix = np.array([
+            [np.cos(angle), -np.sin(angle)],
+            [np.sin(angle),  np.cos(angle)]
+        ])
+        points_sym_cw += np.roll(points, shift=-i * (len(points) // n), axis=0) @ rotation_matrix.T
+        points_sym_ccw += np.roll(points, shift=i * (len(points) // n), axis=0) @ rotation_matrix.T
+    points_sym_cw /= n
+    points_sym_ccw /= n
+
+    points_sym = points_sym_cw if np.sum(points_sym_cw ** 2) >= np.sum(points_sym_ccw ** 2) else points_sym_ccw  # 自动判断是顺时针还是逆时针
+
+    if len_mod_n == 1:
+        points_sym = np.concatenate([points_sym, points_sym[:1]], axis=0)
+
+    return points_sym[:, 0], points_sym[:, 1]
+
 @ti.kernel
 def compute_survive_domain(x_min: float, x_max: float, y_min: float, y_max: float, x_field: ti.template(), y_field: ti.template(), rotation_field: ti.template(), survive_mask: ti.template()):  # 根据轨迹计算能通过的图形 # type: ignore
     for i, j in survive_mask:
